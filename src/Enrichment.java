@@ -3,6 +3,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Random;
@@ -13,6 +14,10 @@ public class Enrichment {
 
 	public String outputfile = "output/pvals_test_full.txt";
 	public String inLists = "genelist/list_official.tsv";
+	public String backgroundFile = "background/archs4humangenes.txt";
+	
+	public int randomListNumber = 1000;
+	public int randomListLength = 300;
 	
 	public Fisher2 fisher;
 	public HashSet<String> backgroundGenes;
@@ -40,8 +45,11 @@ public class Enrichment {
 		enrichment.initialize();
 		System.out.println("Initializing time: "+(System.currentTimeMillis()-time)/1000+"s");
 		
-		enrichment.calculate();
-		enrichment.printPvalue();
+		//enrichment.calculate();
+		//enrichment.printPvalue();
+		time = System.currentTimeMillis();
+		enrichment.doRandom();
+		System.out.println("Random runtime: "+(System.currentTimeMillis()-time)/1000+"s");
 	}
 	
 	public Enrichment() {
@@ -247,48 +255,85 @@ public class Enrichment {
 		return genes;
 	}
 
-//	private void doRandom(){
-//		
-//		HashSet<String> genelist = readGenes("data/input/archs4humangenes.txt");
-//		genelist.retainAll(geneBgSet);
-//		String[] genelistarr = genelist.toArray(new String[0]);
-//		//System.out.println("Sized: "+genelist.size());
-//		
-//		Random rn = new Random();
-//		
-//		HashMap<String, int[]> rankMap = new HashMap<String, int[]>();
-//		for (int i=0; i<transcriptionFactors.size(); i++) {
-//			rankMap.put(transcriptionFactors.get(i).getName(), new int[10000]);
-//		}
-//		
-//		for(int i=0; i<10000; i++){
-//			HashSet<String> randomGenes = new HashSet<String>();
-//			while(randomGenes.size() < 1000){
-//				randomGenes.add(genelistarr[rn.nextInt(genelistarr.length)]);
-//			}
-//
-//			for (int j=0; j<transcriptionFactors.size(); j++) {
-//				rankMap.get(transcriptionFactors.get(j).getName())[i] = j;
-//			}
-//		}
-//
-//		try{
-//			BufferedWriter bw = new BufferedWriter(new FileWriter(new File("data/output/rank_human.txt")));
-//
-//			for(int j=0; j<transcriptionFactors.size(); j++){
-//				int[] tt = rankMap.get(transcriptionFactors.get(j).getName());
-//				bw.write(transcriptionFactors.get(j).getName());
-//				for(int i=0; i<10000; i++){
-//					bw.write("\t"+tt[i]);
-//				}
-//				bw.write("\n");
-//			}
-//
-//			bw.close();
-//		}
-//		catch(Exception e){
-//			e.printStackTrace();
-//		}
-//	}
+	private void doRandom(){
+
+		HashSet<String> genelist = readGenes(backgroundFile);
+		genelist.retainAll(allGMTGenes);
+		
+		String[] genelistarr = genelist.toArray(new String[0]);
+		System.out.println("Final genes: "+genelist.size());
+		
+		Random rn = new Random();
+		
+		HashMap<String, int[]> rankMap = new HashMap<String, int[]>();
+		String[] gmtKey = gmts.keySet().toArray(new String[0]);
+		
+		double[][] pval = new double[randomListNumber][gmtKey.length];
+		int[][] rank = new int[randomListNumber][gmtKey.length];
+		double[] avgRank = new double[gmtKey.length];
+		double[] std = new double[gmtKey.length];
+		
+		for(int i=0; i<randomListNumber; i++){
+			HashSet<String> randomGenes = new HashSet<String>();
+			while(randomGenes.size() < randomListLength){
+				randomGenes.add(genelistarr[rn.nextInt(genelistarr.length)]);
+			}
+			
+			String[] rg = randomGenes.toArray(new String[0]);
+
+			for (int j=0; j<gmts.size(); j++) {
+				int overlap = 0;
+				HashSet<String> gmttemp = gmts.get(gmtKey[j]);
+				for(int k=0; k<rg.length; k++) {
+					if(gmttemp.contains(rg[k])) {
+						overlap++;
+					}
+				}
+				
+				int numGenelist = rg.length;
+	    			int totalBgGenes = genelist.size();
+	    			int totalInputGenes = gmttemp.size();
+	    			int numOverlap = overlap;
+	    			pval[i][j] = fisher.getRightTailedP(numOverlap,(totalInputGenes - numOverlap), numGenelist, (totalBgGenes - numGenelist));	
+	    			
+			}
+		}
+		
+		for(int i=0; i<pval.length; i++) {
+			rank[i] = getRanksArray(pval[i]);
+		}
+
+		try{
+			BufferedWriter bw = new BufferedWriter(new FileWriter(new File("output/rank_human.txt")));
+
+			for(int i=0; i<gmtKey.length; i++){
+				bw.write(gmtKey[i]);
+				for(int j=0; j<rank[0].length; j++){
+					bw.write("\t"+rank[j][i]);
+				}
+				bw.write("\n");
+			}
+
+			bw.close();
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
+	}
+	
+	public static int[] getRanksArray(double[] array) {
+	    int[] result = new int[array.length];
+
+	    for (int i = 0; i < array.length; i++) {
+	        int count = 0;
+	        for (int j = 0; j < array.length; j++) {
+	            if (array[j] < array[i]) {
+	                count++;
+	            }
+	        }
+	        result[i] = count + 1;
+	    }
+	    return result;
+	}
 	
 }
