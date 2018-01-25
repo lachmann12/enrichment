@@ -306,6 +306,7 @@ public class Enrichment {
 		
 		System.out.println(allgenes.length);
 		
+		
 		for(int i=0; i<randomListNumber; i++) {
 			HashSet<String> tt = new HashSet<String>();
 			while(tt.size() < randomListLength) {
