@@ -305,7 +305,7 @@ public class Enrichment {
 		geneLists = new HashMap<String, HashSet<String>>();
 		
 		System.out.println(allgenes.length);
-		 
+		
 		
 		for(int i=0; i<randomListNumber; i++) {
 			HashSet<String> tt = new HashSet<String>();
