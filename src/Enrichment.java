@@ -12,10 +12,11 @@ import java.util.concurrent.Executors;
 
 public class Enrichment {
 
-	public String outputfile = "output/pvals_test_full.txt";
+	public String outputfile = "output/pvals_test_shortlist_10_50.txt";
 	public String inLists = "genelist/list_official.tsv";
 	public String backgroundFile = "background/archs4humangenes.txt";
 	
+	public int genelistnumber = 1000;
 	public int randomListNumber = 1000;
 	public int randomListLength = 300;
 	
@@ -24,17 +25,24 @@ public class Enrichment {
 	public HashSet<String> allGMTGenes;
 	public HashSet<String> allGenes = new HashSet<String>();
 	public HashMap<String, HashSet<String>> gmts;
+	public HashMap<String, String[]> gmtsarray;
 	public HashMap<String, HashSet<String>> geneLists;
 	
 	public double average = 0;
 	public double averageOverlap = 0;
 	public int counter = 0;
-	public int minSize = 20;
-	public int minSizeGMT = 20;
+	
+	public int minSize = 10;
+	public int maxSize = 50;
+	
+	public int minSizeGMT = 50;
 	
 	public int threadCount = 8;
 	
+	public String[] allgenes;
+	
 	public double[][] pvals;
+	public int[][] overlaps;
 	public String[] keys;
 	String[] gmtKey;
 	
@@ -45,10 +53,12 @@ public class Enrichment {
 		enrichment.initialize();
 		System.out.println("Initializing time: "+(System.currentTimeMillis()-time)/1000+"s");
 		
-		//enrichment.calculate();
-		//enrichment.printPvalue();
 		time = System.currentTimeMillis();
-		enrichment.doRandom();
+		
+		enrichment.calculate();
+		enrichment.printPvalue();
+		
+		//enrichment.doRandom();
 		System.out.println("Random runtime: "+(System.currentTimeMillis()-time)/1000+"s");
 	}
 	
@@ -57,9 +67,17 @@ public class Enrichment {
 	}
 	
 	public void initialize() {
+		
 		backgroundGenes = readGenes("background/archs4humangenes.txt");
 		gmts = readGMT("gmts", minSizeGMT);
-		geneLists = readGenelists(inLists, minSize);
+		gmtKey = gmts.keySet().toArray(new String[0]);
+		gmtsarray = new HashMap<String, String[]>();
+		
+		for(String gk : gmtKey) {
+			gmtsarray.put(gk, gmts.get(gk).toArray(new String[0]));
+		}
+		
+		geneLists = readGenelists(inLists, minSize, maxSize);
 		System.out.println("Number of gmt lists: "+gmts.size());
 		System.out.println("Number of gene lists: "+geneLists.size());
 	}
@@ -73,12 +91,13 @@ public class Enrichment {
 		
 		long time = System.currentTimeMillis();
 		
-		pvals = new double[100][gmtKey.length];
+		pvals = new double[genelistnumber][gmtKey.length];
+		overlaps = new int[genelistnumber][gmtKey.length];
 		
-		for(int i=0; i<100; i++) {
+		for(int i=0; i<pvals.length; i++) {
 			Runnable worker = new EnrichmentThread(i);
 	        executor.execute(worker);
-			counter+=gmtKey.length;
+			counter += gmtKey.length;
 		}
 		
 		executor.shutdown();
@@ -129,31 +148,50 @@ public class Enrichment {
 	    @Override
 	    public void run() {
 	    	
-	    		String[] keys = gmts.keySet().toArray(new String[0]);
+	    		String[] gmtkeys = gmts.keySet().toArray(new String[0]);
 	    		
-	    		for(int i=0; i<keys.length; i++) {
+	    		HashSet<String> tempo = geneLists.get(keys[ip]);
+	    		
+	    		for(int i=0; i<gmtkeys.length; i++) {
 	    			int overlap = 0;
-	    			HashSet<String> temp = gmts.get(keys[i]);
 	    			
-	    			for(int j=0; j<lid.length; j++) {
-	    				if(temp.contains(lid[j])){
-	        	 			overlap++;
-	        	 		}
+	    			String[] temparr = gmtsarray.get(gmtkeys[i]);
+	    			
+	    			if(lid.length < temparr.length) {
+	    				HashSet<String> temp = gmts.get(gmtkeys[i]);
+		    			for(int j=0; j<lid.length; j++) {
+		    				if(temp.contains(lid[j])){
+		        	 			overlap++;
+		        	 		}
+		    			}
+	    			}
+	    			else {
+	    				
+	    				for(int j=0; j<temparr.length; j++) {
+		    				if(tempo.contains(temparr[j])){
+		        	 			overlap++;
+		        	 		}
+		    			}
 	    			}
 	    			
-	    			int numGenelist = lid.length;
-	    			int totalBgGenes = backgroundGenes.size();
-	    			int totalInputGenes = temp.size();
-	    			int numOverlap = overlap;
-	    			double oddsRatio = (numOverlap*1.0/(totalInputGenes - numOverlap))/(numGenelist*1.0/(totalBgGenes - numGenelist));
-	    			double pvalue = fisher.getRightTailedP(numOverlap,(totalInputGenes - numOverlap), numGenelist, (totalBgGenes - numGenelist));	
-	    			pvals[ip][i] = pvalue;
-	    			
+	    			if(overlap > 0) {
+		    			int numGenelist = lid.length;
+		    			int totalBgGenes = allGMTGenes.size();
+		    			int totalInputGenes = temparr.length;
+		    			int numOverlap = overlap;
+		    			//double oddsRatio = (numOverlap*1.0/(totalInputGenes - numOverlap))/(numGenelist*1.0/(totalBgGenes - numGenelist));
+		    			double pvalue = fisher.getRightTailedP(numOverlap,(totalInputGenes - numOverlap), numGenelist, (totalBgGenes - numGenelist));	
+		    			pvals[ip][i] = pvalue;
+		    			overlaps[ip][i] = overlap;
+	    			}
+	    			else {
+	    				pvals[ip][i] = 1;
+	    			}
 	    		}
 	    }
 	}
 	
-	public HashMap<String, HashSet<String>> readGenelists(String _file, int _minSize){
+	public HashMap<String, HashSet<String>> readGenelists(String _file, int _minSize, int _maxSize){
 		
 		HashMap<String, HashSet<String>> geneLists = new HashMap<String, HashSet<String>>();
 		
@@ -162,7 +200,7 @@ public class Enrichment {
 			String line = "";
 			
 			//while((line = br.readLine()) != null){
-			for(int i=0; i<3000000; i++) {
+			for(int i=0; i<2000000; i++) {
 				
 				line = br.readLine();
 				
@@ -192,7 +230,7 @@ public class Enrichment {
 			
 			allGenes.addAll(geneLists.get(key));
 			
-			if(geneLists.get(key).size() >= minSize) {
+			if(geneLists.get(key).size() >= _minSize &&  geneLists.get(key).size() <= _maxSize) {
 				finalLists.put(key, geneLists.get(key));
 			}
 		}
@@ -256,64 +294,98 @@ public class Enrichment {
 	}
 
 	private void doRandom(){
-
-		HashSet<String> genelist = readGenes(backgroundFile);
-		genelist.retainAll(allGMTGenes);
-		
-		String[] genelistarr = genelist.toArray(new String[0]);
-		System.out.println("Final genes: "+genelist.size());
 		
 		Random rn = new Random();
+		pvals = new double[randomListNumber][gmtKey.length];
 		
-		HashMap<String, int[]> rankMap = new HashMap<String, int[]>();
-		String[] gmtKey = gmts.keySet().toArray(new String[0]);
+		HashSet<String> genelist = readGenes(backgroundFile);
+		genelist.retainAll(allGMTGenes);
+		allgenes = genelist.toArray(new String[0]);
 		
-		double[][] pval = new double[randomListNumber][gmtKey.length];
+		geneLists = new HashMap<String, HashSet<String>>();
+		
+		System.out.println(allgenes.length);
+		
+		for(int i=0; i<randomListNumber; i++) {
+			HashSet<String> tt = new HashSet<String>();
+			while(tt.size() < randomListLength) {
+				tt.add(allgenes[rn.nextInt(allgenes.length)]);
+			}
+			geneLists.put(""+i,  tt);
+		}
+		
+		ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+		
+		keys = geneLists.keySet().toArray(new String[0]);
+		gmtKey = gmts.keySet().toArray(new String[0]);
+		
+		pvals = new double[randomListNumber][gmtKey.length];
 		int[][] rank = new int[randomListNumber][gmtKey.length];
-		double[] avgRank = new double[gmtKey.length];
-		double[] std = new double[gmtKey.length];
+		overlaps = new int[randomListNumber][gmtKey.length];
 		
-		for(int i=0; i<randomListNumber; i++){
-			HashSet<String> randomGenes = new HashSet<String>();
-			while(randomGenes.size() < randomListLength){
-				randomGenes.add(genelistarr[rn.nextInt(genelistarr.length)]);
-			}
-			
-			String[] rg = randomGenes.toArray(new String[0]);
-
-			for (int j=0; j<gmts.size(); j++) {
-				int overlap = 0;
-				HashSet<String> gmttemp = gmts.get(gmtKey[j]);
-				for(int k=0; k<rg.length; k++) {
-					if(gmttemp.contains(rg[k])) {
-						overlap++;
-					}
-				}
-				
-				int numGenelist = rg.length;
-	    			int totalBgGenes = genelist.size();
-	    			int totalInputGenes = gmttemp.size();
-	    			int numOverlap = overlap;
-	    			pval[i][j] = fisher.getRightTailedP(numOverlap,(totalInputGenes - numOverlap), numGenelist, (totalBgGenes - numGenelist));	
-	    			
+		for(int i=0; i<keys.length; i++) {
+			Runnable worker = new EnrichmentThread(i);
+	        executor.execute(worker);
+		}
+		
+		executor.shutdown();
+		
+		double[][] pvalt = new double[pvals[1].length][pvals.length];
+		
+		for(int i=0; i<pvals.length; i++) {
+			for(int j=0; j<pvals[1].length; j++) {
+				pvalt[j][i] = pvals[i][j];
 			}
 		}
 		
-		for(int i=0; i<pval.length; i++) {
-			rank[i] = getRanksArray(pval[i]);
+		for(int i=0; i<pvals.length; i++) {
+			rank[i] = getRanksArray(pvals[i]);
 		}
-
+		
+		System.out.println("ok: "+pvals.length+" - "+pvals[1].length);
+		
 		try{
 			BufferedWriter bw = new BufferedWriter(new FileWriter(new File("output/rank_human.txt")));
-
+			
 			for(int i=0; i<gmtKey.length; i++){
-				bw.write(gmtKey[i]);
-				for(int j=0; j<rank[0].length; j++){
+				bw.write(gmtKey[i]+"\t"+gmts.get(gmtKey[i]).size());
+				for(int j=0; j<rank.length; j++){
 					bw.write("\t"+rank[j][i]);
 				}
 				bw.write("\n");
 			}
+			bw.close();
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
+		
+		try{
+			BufferedWriter bw = new BufferedWriter(new FileWriter(new File("output/pval_human.txt")));
 
+			for(int i=0; i<gmtKey.length; i++){
+				bw.write(gmtKey[i]+"\t"+gmts.get(gmtKey[i]).size());
+				for(int j=0; j<pvals.length; j++){
+					bw.write("\t"+pvals[j][i]);
+				}
+				bw.write("\n");
+			}
+			bw.close();
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
+		
+		try{
+			BufferedWriter bw = new BufferedWriter(new FileWriter(new File("output/overlap_human.txt")));
+
+			for(int i=0; i<gmtKey.length; i++){
+				bw.write(gmtKey[i]+"\t"+gmts.get(gmtKey[i]).size());
+				for(int j=0; j<overlaps.length; j++){
+					bw.write("\t"+overlaps[j][i]);
+				}
+				bw.write("\n");
+			}
 			bw.close();
 		}
 		catch(Exception e){
@@ -335,5 +407,4 @@ public class Enrichment {
 	    }
 	    return result;
 	}
-	
 }
